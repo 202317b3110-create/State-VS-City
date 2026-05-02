@@ -36,14 +36,11 @@ def clean_currency_and_numbers(df, col_name):
     if col_name == "Not Selected" or col_name not in df.columns:
         return df
     
-    # If it's already a number, leave it alone
     if pd.api.types.is_numeric_dtype(df[col_name]):
         return df
         
-    # Clean the string: remove common currency symbols, commas, and letters
+    # Clean the string and coerce to numeric
     df[col_name] = df[col_name].astype(str).str.replace(r'[₹$,€A-Za-z ]', '', regex=True)
-    
-    # Convert to numeric (errors='coerce' turns completely invalid text into NaN)
     df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
     return df
 
@@ -53,7 +50,6 @@ def load_data(uploaded_file, dataset_name):
     if uploaded_file is not None:
         return pd.read_csv(uploaded_file)
     else:
-        # Generate REAL ESTATE mock data
         np.random.seed(42 if dataset_name == "A" else 99)
         locations = ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Pune']
         types = ['Apartment', 'Villa', 'Independent House', 'Studio']
@@ -82,7 +78,7 @@ source_1 = uploaded_file_1.name if uploaded_file_1 else "Sample Data A"
 source_2 = uploaded_file_2.name if uploaded_file_2 else "Sample Data B"
 
 # -----------------------------------------------------------------------------
-# CHART RENDERING ENGINE (Works for any dataset)
+# CHART RENDERING ENGINE
 # -----------------------------------------------------------------------------
 def render_dataset_dashboard(df, title, source_name, prefix):
     st.header(title)
@@ -94,7 +90,6 @@ def render_dataset_dashboard(df, title, source_name, prefix):
         cols = ["Not Selected"] + list(df.columns)
         c1, c2, c3 = st.columns(3)
         
-        # Auto-detect defaults
         def_loc = find_default_col(df.columns, ['city', 'state', 'local', 'region', 'area_name'])
         def_price = find_default_col(df.columns, ['price', 'cost', 'amount', 'budget'])
         def_area = find_default_col(df.columns, ['area', 'sqft', 'size', 'build'])
@@ -102,17 +97,16 @@ def render_dataset_dashboard(df, title, source_name, prefix):
         def_yield = find_default_col(df.columns, ['yield', 'rent', 'roi'])
         def_attr = find_default_col(df.columns, ['attract', 'score', 'rating'])
 
-        col_loc = c1.selectbox("Location/State/City Col", cols, index=cols.index(def_loc) if def_loc in cols else 0, key=f"{prefix}_loc")
-        col_price = c2.selectbox("Sale Price Col", cols, index=cols.index(def_price) if def_price in cols else 0, key=f"{prefix}_prc")
-        col_area = c3.selectbox("Build Up Area Col", cols, index=cols.index(def_area) if def_area in cols else 0, key=f"{prefix}_area")
+        col_loc = c1.selectbox("Location/State/City", cols, index=cols.index(def_loc) if def_loc in cols else 0, key=f"{prefix}_loc")
+        col_price = c2.selectbox("Sale Price", cols, index=cols.index(def_price) if def_price in cols else 0, key=f"{prefix}_prc")
+        col_area = c3.selectbox("Build Up Area", cols, index=cols.index(def_area) if def_area in cols else 0, key=f"{prefix}_area")
         
         c4, c5, c6 = st.columns(3)
-        col_type = c4.selectbox("Property Type Col", cols, index=cols.index(def_type) if def_type in cols else 0, key=f"{prefix}_typ")
-        col_yield = c5.selectbox("Rental Yield Col", cols, index=cols.index(def_yield) if def_yield in cols else 0, key=f"{prefix}_yld")
-        col_attr = c6.selectbox("Attraction Score Col", cols, index=cols.index(def_attr) if def_attr in cols else 0, key=f"{prefix}_att")
+        col_type = c4.selectbox("Property Type", cols, index=cols.index(def_type) if def_type in cols else 0, key=f"{prefix}_typ")
+        col_yield = c5.selectbox("Rental Yield", cols, index=cols.index(def_yield) if def_yield in cols else 0, key=f"{prefix}_yld")
+        col_attr = c6.selectbox("Attraction Score", cols, index=cols.index(def_attr) if def_attr in cols else 0, key=f"{prefix}_att")
 
-    # --- CRITICAL FIX: CLEAN THE DATA ---
-    # Convert chosen columns to strict numbers, overriding strings/commas/symbols
+    # Clean numerical columns
     df = clean_currency_and_numbers(df, col_price)
     df = clean_currency_and_numbers(df, col_area)
     df = clean_currency_and_numbers(df, col_yield)
@@ -120,13 +114,23 @@ def render_dataset_dashboard(df, title, source_name, prefix):
 
     st.markdown("---")
 
+    # Prevent rendering if columns match exactly (prevents completely flat/useless graphs)
+    if col_loc != "Not Selected" and (col_loc == col_price or col_loc == col_area):
+        st.warning("⚠️ Please ensure Location is mapped to a different column than Price or Area.")
+        return
+
     # --- KPIs ---
     k1, k2, k3 = st.columns(3)
     k1.metric("Total Properties", f"{len(df):,}")
     if col_price != "Not Selected" and pd.api.types.is_numeric_dtype(df[col_price]):
-        k2.metric("Average Price", f"₹{df[col_price].mean():,.0f}")
+        valid_prices = df[col_price].dropna()
+        avg_price = valid_prices.mean() if not valid_prices.empty else 0
+        k2.metric("Average Price", f"₹{avg_price:,.0f}")
+    
     if col_area != "Not Selected" and pd.api.types.is_numeric_dtype(df[col_area]):
-        k3.metric("Average Area", f"{df[col_area].mean():,.0f} sqft")
+        valid_areas = df[col_area].dropna()
+        avg_area = valid_areas.mean() if not valid_areas.empty else 0
+        k3.metric("Average Area", f"{avg_area:,.0f} sqft")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -135,49 +139,63 @@ def render_dataset_dashboard(df, title, source_name, prefix):
     ch1, ch2 = st.columns(2)
     with ch1:
         if col_loc != "Not Selected":
-            fig1 = px.pie(df, names=col_loc, title="Distribution by Location", template="plotly_dark", hole=0.4)
-            st.plotly_chart(fig1, width="stretch")
+            # dropna prevents Plotly errors from empty segments
+            clean_loc = df.dropna(subset=[col_loc])
+            if not clean_loc.empty:
+                fig1 = px.pie(clean_loc, names=col_loc, title="Distribution by Location", template="plotly_dark", hole=0.4)
+                st.plotly_chart(fig1, width="stretch")
     with ch2:
         if col_type != "Not Selected":
-            fig2 = px.pie(df, names=col_type, title="Property Type Distribution", template="plotly_dark")
-            st.plotly_chart(fig2, width="stretch")
+            clean_type = df.dropna(subset=[col_type])
+            if not clean_type.empty:
+                fig2 = px.pie(clean_type, names=col_type, title="Property Type Distribution", template="plotly_dark")
+                st.plotly_chart(fig2, width="stretch")
 
-    # 2. Avg Price by Locality
+    # 2. Avg Price by Locality (FIXED: Added name='Average_Price' to prevent ValueError)
     if col_loc != "Not Selected" and col_price != "Not Selected":
-        avg_price_df = df.groupby(col_loc)[col_price].mean().reset_index().sort_values(by=col_price, ascending=False).head(15)
-        fig3 = px.bar(avg_price_df, x=col_loc, y=col_price, title="Avg Sale Price by Locality/State", template="plotly_dark", color=col_price, color_continuous_scale="Viridis")
-        st.plotly_chart(fig3, width="stretch")
+        clean_df = df.dropna(subset=[col_loc, col_price])
+        if not clean_df.empty:
+            avg_price_df = clean_df.groupby(col_loc)[col_price].mean().reset_index(name='Average_Price').sort_values(by='Average_Price', ascending=False).head(15)
+            fig3 = px.bar(avg_price_df, x=col_loc, y='Average_Price', title="Avg Sale Price by Locality/State", template="plotly_dark", color='Average_Price', color_continuous_scale="Viridis")
+            st.plotly_chart(fig3, width="stretch")
 
     # 3. Build Up Area vs Sale Price (Scatter)
     if col_area != "Not Selected" and col_price != "Not Selected":
-        fig4 = px.scatter(df, x=col_area, y=col_price, color=col_type if col_type != "Not Selected" else None, 
-                          title="Build-Up Area vs Sale Price", template="plotly_dark", opacity=0.7)
-        st.plotly_chart(fig4, width="stretch")
+        clean_scatter = df.dropna(subset=[col_area, col_price])
+        if not clean_scatter.empty:
+            fig4 = px.scatter(clean_scatter, x=col_area, y=col_price, color=col_type if col_type != "Not Selected" else None, 
+                              title="Build-Up Area vs Sale Price", template="plotly_dark", opacity=0.7)
+            st.plotly_chart(fig4, width="stretch")
 
     # 4. Budget Range (Price Histogram)
     if col_price != "Not Selected":
-        fig5 = px.histogram(df, x=col_price, nbins=30, title="Budget Range Distribution", template="plotly_dark", color_discrete_sequence=['#636EFA'])
-        st.plotly_chart(fig5, width="stretch")
+        clean_hist = df.dropna(subset=[col_price])
+        if not clean_hist.empty:
+            fig5 = px.histogram(clean_hist, x=col_price, nbins=30, title="Budget Range Distribution", template="plotly_dark", color_discrete_sequence=['#636EFA'])
+            st.plotly_chart(fig5, width="stretch")
 
-    # 5. Rental Yield & Attraction Score
+    # 5. Rental Yield & Attraction Score (FIXED Name collisions)
     ch3, ch4 = st.columns(2)
     with ch3:
         if col_loc != "Not Selected" and col_yield != "Not Selected":
-            yld_df = df.groupby(col_loc)[col_yield].mean().reset_index()
-            fig6 = px.bar(yld_df, x=col_loc, y=col_yield, title="Avg Rental Yield by Locality", template="plotly_dark")
-            st.plotly_chart(fig6, width="stretch")
+            clean_yld = df.dropna(subset=[col_loc, col_yield])
+            if not clean_yld.empty:
+                yld_df = clean_yld.groupby(col_loc)[col_yield].mean().reset_index(name='Average_Yield')
+                fig6 = px.bar(yld_df, x=col_loc, y='Average_Yield', title="Avg Rental Yield by Locality", template="plotly_dark")
+                st.plotly_chart(fig6, width="stretch")
     with ch4:
         if col_loc != "Not Selected" and col_attr != "Not Selected":
-            attr_df = df.groupby(col_loc)[col_attr].mean().reset_index()
-            fig7 = px.bar(attr_df, x=col_loc, y=col_attr, title="Avg Attraction Score by Locality", template="plotly_dark", color_discrete_sequence=['#00CC96'])
-            st.plotly_chart(fig7, width="stretch")
-
+            clean_attr = df.dropna(subset=[col_loc, col_attr])
+            if not clean_attr.empty:
+                attr_df = clean_attr.groupby(col_loc)[col_attr].mean().reset_index(name='Average_Score')
+                fig7 = px.bar(attr_df, x=col_loc, y='Average_Score', title="Avg Attraction Score by Locality", template="plotly_dark", color_discrete_sequence=['#00CC96'])
+                st.plotly_chart(fig7, width="stretch")
 
 # -----------------------------------------------------------------------------
 # MAIN DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
 st.title("⚖️ Compare Real Estate Datasets")
-st.markdown("Upload your CSVs. The app will automatically map columns (or you can map them yourself) to generate insights.")
+st.markdown("Upload your CSVs. Map your columns manually if the auto-detector misses them.")
 
 col1, col2 = st.columns(2)
 
