@@ -194,7 +194,7 @@ def render_dataset_dashboard(df, title, source_name, prefix):
 # -----------------------------------------------------------------------------
 # MAIN DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
-st.title("⚖️ Compare Real Estate Datasets")
+st.title("⚖️ State Vs City Dataset Comparision")
 st.markdown("Upload your CSVs. Map your columns manually if the auto-detector misses them.")
 
 col1, col2 = st.columns(2)
