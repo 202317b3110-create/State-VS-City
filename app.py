@@ -31,6 +31,22 @@ def find_default_col(columns, keywords):
             return col
     return "Not Selected"
 
+def clean_currency_and_numbers(df, col_name):
+    """Removes commas, currency symbols, and text, converting the column to pure numbers."""
+    if col_name == "Not Selected" or col_name not in df.columns:
+        return df
+    
+    # If it's already a number, leave it alone
+    if pd.api.types.is_numeric_dtype(df[col_name]):
+        return df
+        
+    # Clean the string: remove common currency symbols, commas, and letters
+    df[col_name] = df[col_name].astype(str).str.replace(r'[₹$,€A-Za-z ]', '', regex=True)
+    
+    # Convert to numeric (errors='coerce' turns completely invalid text into NaN)
+    df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
+    return df
+
 @st.cache_data
 def load_data(uploaded_file, dataset_name):
     """Loads CSV or generates Real Estate Mock Data if empty."""
@@ -94,6 +110,13 @@ def render_dataset_dashboard(df, title, source_name, prefix):
         col_type = c4.selectbox("Property Type Col", cols, index=cols.index(def_type) if def_type in cols else 0, key=f"{prefix}_typ")
         col_yield = c5.selectbox("Rental Yield Col", cols, index=cols.index(def_yield) if def_yield in cols else 0, key=f"{prefix}_yld")
         col_attr = c6.selectbox("Attraction Score Col", cols, index=cols.index(def_attr) if def_attr in cols else 0, key=f"{prefix}_att")
+
+    # --- CRITICAL FIX: CLEAN THE DATA ---
+    # Convert chosen columns to strict numbers, overriding strings/commas/symbols
+    df = clean_currency_and_numbers(df, col_price)
+    df = clean_currency_and_numbers(df, col_area)
+    df = clean_currency_and_numbers(df, col_yield)
+    df = clean_currency_and_numbers(df, col_attr)
 
     st.markdown("---")
 
