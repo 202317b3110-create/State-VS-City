@@ -4,213 +4,170 @@ import plotly.express as px
 import numpy as np
 
 # -----------------------------------------------------------------------------
-# PAGE CONFIGURATION
+# PAGE CONFIGURATION & CSS
 # -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Data Compare Pro",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Real Estate Insights Pro", page_icon="🏢", layout="wide")
 
-# Custom CSS for a cleaner, modern look (Fixed for Dark Mode visibility)
 st.markdown("""
     <style>
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    
-    /* Modern Metric Box Styling */
+    .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
     div[data-testid="metric-container"] {
-        background-color: #262730; /* Dark card background */
-        border: 1px solid #334155; /* Subtle border */
-        padding: 15px; 
-        border-radius: 8px; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        background-color: #262730; border: 1px solid #334155; padding: 15px; 
+        border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
-    
-    /* Force text colors to be visible in the metric boxes */
-    div[data-testid="metric-container"] label {
-        color: #94A3B8 !important; /* Light gray for the title/label */
-        font-weight: 600;
-    }
-    div[data-testid="stMetricValue"] {
-        color: #F8FAFC !important; /* Bright white for the actual number */
-    }
+    div[data-testid="metric-container"] label { color: #94A3B8 !important; font-weight: 600; }
+    div[data-testid="stMetricValue"] { color: #F8FAFC !important; }
+    hr { margin-top: 1rem; margin-bottom: 1rem; }
     </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# DYNAMIC FILE UPLOADERS (Ready for Cloud Deployment)
+# HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2040/2040504.png", width=50) # Optional logo
-st.sidebar.title("Dashboard Controls")
+def find_default_col(columns, keywords):
+    """Tries to auto-detect columns based on common real estate keywords."""
+    for col in columns:
+        if any(keyword.lower() in col.lower() for keyword in keywords):
+            return col
+    return "Not Selected"
 
-st.sidebar.header("📂 Upload Datasets")
-uploaded_file_1 = st.sidebar.file_uploader("Upload Dataset A (CSV)", type=["csv"], key="file1")
-uploaded_file_2 = st.sidebar.file_uploader("Upload Dataset B (CSV)", type=["csv"], key="file2")
-
-# -----------------------------------------------------------------------------
-# DATA LOADING FUNCTION
-# -----------------------------------------------------------------------------
 @st.cache_data
 def load_data(uploaded_file, dataset_name):
-    """Loads CSV data dynamically. Generates mock data if no file is uploaded."""
+    """Loads CSV or generates Real Estate Mock Data if empty."""
     if uploaded_file is not None:
-        # Read the uploaded file directly
-        df = pd.read_csv(uploaded_file)
-        return df
+        return pd.read_csv(uploaded_file)
     else:
-        # Generate mock data so the dashboard still renders while waiting for an upload
-        np.random.seed(42 if dataset_name == "Dataset A" else 99)
-        categories = ['Electronics', 'Clothing', 'Home', 'Beauty', 'Sports']
-        regions = ['North', 'South', 'East', 'West']
+        # Generate REAL ESTATE mock data
+        np.random.seed(42 if dataset_name == "A" else 99)
+        locations = ['Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Pune']
+        types = ['Apartment', 'Villa', 'Independent House', 'Studio']
         data = {
-            'Category': np.random.choice(categories, 200),
-            'Region': np.random.choice(regions, 200),
-            'Revenue': np.random.uniform(100, 5000, 200).round(2),
-            'Units_Sold': np.random.randint(1, 100, 200),
-            'Date': pd.date_range(start='2023-01-01', periods=200)
+            'City_Name': np.random.choice(locations, 200),
+            'Property_Type': np.random.choice(types, 200),
+            'Sale_Price': np.random.uniform(2000000, 15000000, 200),
+            'Build_Up_Area_SqFt': np.random.uniform(500, 4000, 200),
+            'Rental_Yield_Pct': np.random.uniform(2, 8, 200),
+            'Attraction_Score': np.random.uniform(1, 10, 200).round(1)
         }
         return pd.DataFrame(data)
 
-# Load the datasets
-df1 = load_data(uploaded_file_1, "Dataset A")
-df2 = load_data(uploaded_file_2, "Dataset B")
+# -----------------------------------------------------------------------------
+# SIDEBAR: UPLOADS
+# -----------------------------------------------------------------------------
+st.sidebar.title("🏢 Real Estate Compare")
+st.sidebar.header("📂 Upload Datasets")
+uploaded_file_1 = st.sidebar.file_uploader("Upload Dataset A (CSV)", type=["csv"])
+uploaded_file_2 = st.sidebar.file_uploader("Upload Dataset B (CSV)", type=["csv"])
+
+df1 = load_data(uploaded_file_1, "A")
+df2 = load_data(uploaded_file_2, "B")
+
+source_1 = uploaded_file_1.name if uploaded_file_1 else "Sample Data A"
+source_2 = uploaded_file_2.name if uploaded_file_2 else "Sample Data B"
 
 # -----------------------------------------------------------------------------
-# SIDEBAR: FILTERS
+# CHART RENDERING ENGINE (Works for any dataset)
 # -----------------------------------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.markdown("Filter your data views below.")
-
-# Dynamic categorical filter
-common_columns = list(set(df1.columns) & set(df2.columns))
-
-if 'Category' in common_columns:
-    all_categories = sorted(list(set(df1['Category'].unique()) | set(df2['Category'].unique())))
-    selected_categories = st.sidebar.multiselect(
-        "Select Categories",
-        options=all_categories,
-        default=all_categories
-    )
+def render_dataset_dashboard(df, title, source_name, prefix):
+    st.header(title)
+    st.caption(f"Source: `{source_name}`")
     
-    # Apply filters
-    if selected_categories:
-        df1 = df1[df1['Category'].isin(selected_categories)]
-        df2 = df2[df2['Category'].isin(selected_categories)]
+    # --- DYNAMIC COLUMN MAPPING UI ---
+    st.markdown("###### ⚙️ Map Your Columns")
+    with st.expander("Expand to map dataset columns to charts", expanded=True):
+        cols = ["Not Selected"] + list(df.columns)
+        c1, c2, c3 = st.columns(3)
+        
+        # Auto-detect defaults
+        def_loc = find_default_col(df.columns, ['city', 'state', 'local', 'region', 'area_name'])
+        def_price = find_default_col(df.columns, ['price', 'cost', 'amount', 'budget'])
+        def_area = find_default_col(df.columns, ['area', 'sqft', 'size', 'build'])
+        def_type = find_default_col(df.columns, ['type', 'category', 'bhk'])
+        def_yield = find_default_col(df.columns, ['yield', 'rent', 'roi'])
+        def_attr = find_default_col(df.columns, ['attract', 'score', 'rating'])
+
+        col_loc = c1.selectbox("Location/State/City Col", cols, index=cols.index(def_loc) if def_loc in cols else 0, key=f"{prefix}_loc")
+        col_price = c2.selectbox("Sale Price Col", cols, index=cols.index(def_price) if def_price in cols else 0, key=f"{prefix}_prc")
+        col_area = c3.selectbox("Build Up Area Col", cols, index=cols.index(def_area) if def_area in cols else 0, key=f"{prefix}_area")
+        
+        c4, c5, c6 = st.columns(3)
+        col_type = c4.selectbox("Property Type Col", cols, index=cols.index(def_type) if def_type in cols else 0, key=f"{prefix}_typ")
+        col_yield = c5.selectbox("Rental Yield Col", cols, index=cols.index(def_yield) if def_yield in cols else 0, key=f"{prefix}_yld")
+        col_attr = c6.selectbox("Attraction Score Col", cols, index=cols.index(def_attr) if def_attr in cols else 0, key=f"{prefix}_att")
+
+    st.markdown("---")
+
+    # --- KPIs ---
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total Properties", f"{len(df):,}")
+    if col_price != "Not Selected" and pd.api.types.is_numeric_dtype(df[col_price]):
+        k2.metric("Average Price", f"₹{df[col_price].mean():,.0f}")
+    if col_area != "Not Selected" and pd.api.types.is_numeric_dtype(df[col_area]):
+        k3.metric("Average Area", f"{df[col_area].mean():,.0f} sqft")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- CHARTS ---
+    # 1. Location Distribution & Property Type
+    ch1, ch2 = st.columns(2)
+    with ch1:
+        if col_loc != "Not Selected":
+            fig1 = px.pie(df, names=col_loc, title="Distribution by Location", template="plotly_dark", hole=0.4)
+            st.plotly_chart(fig1, width="stretch")
+    with ch2:
+        if col_type != "Not Selected":
+            fig2 = px.pie(df, names=col_type, title="Property Type Distribution", template="plotly_dark")
+            st.plotly_chart(fig2, width="stretch")
+
+    # 2. Avg Price by Locality
+    if col_loc != "Not Selected" and col_price != "Not Selected":
+        avg_price_df = df.groupby(col_loc)[col_price].mean().reset_index().sort_values(by=col_price, ascending=False).head(15)
+        fig3 = px.bar(avg_price_df, x=col_loc, y=col_price, title="Avg Sale Price by Locality/State", template="plotly_dark", color=col_price, color_continuous_scale="Viridis")
+        st.plotly_chart(fig3, width="stretch")
+
+    # 3. Build Up Area vs Sale Price (Scatter)
+    if col_area != "Not Selected" and col_price != "Not Selected":
+        fig4 = px.scatter(df, x=col_area, y=col_price, color=col_type if col_type != "Not Selected" else None, 
+                          title="Build-Up Area vs Sale Price", template="plotly_dark", opacity=0.7)
+        st.plotly_chart(fig4, width="stretch")
+
+    # 4. Budget Range (Price Histogram)
+    if col_price != "Not Selected":
+        fig5 = px.histogram(df, x=col_price, nbins=30, title="Budget Range Distribution", template="plotly_dark", color_discrete_sequence=['#636EFA'])
+        st.plotly_chart(fig5, width="stretch")
+
+    # 5. Rental Yield & Attraction Score
+    ch3, ch4 = st.columns(2)
+    with ch3:
+        if col_loc != "Not Selected" and col_yield != "Not Selected":
+            yld_df = df.groupby(col_loc)[col_yield].mean().reset_index()
+            fig6 = px.bar(yld_df, x=col_loc, y=col_yield, title="Avg Rental Yield by Locality", template="plotly_dark")
+            st.plotly_chart(fig6, width="stretch")
+    with ch4:
+        if col_loc != "Not Selected" and col_attr != "Not Selected":
+            attr_df = df.groupby(col_loc)[col_attr].mean().reset_index()
+            fig7 = px.bar(attr_df, x=col_loc, y=col_attr, title="Avg Attraction Score by Locality", template="plotly_dark", color_discrete_sequence=['#00CC96'])
+            st.plotly_chart(fig7, width="stretch")
+
 
 # -----------------------------------------------------------------------------
-# MAIN DASHBOARD
+# MAIN DASHBOARD LAYOUT
 # -----------------------------------------------------------------------------
-st.title("📊 Dataset Comparison Dashboard")
-st.markdown("Compare key metrics, distributions, and trends across two distinct datasets side-by-side.")
-st.markdown("---")
+st.title("⚖️ Compare Real Estate Datasets")
+st.markdown("Upload your CSVs. The app will automatically map columns (or you can map them yourself) to generate insights.")
 
-# Layout: Two main columns for side-by-side comparison
 col1, col2 = st.columns(2)
 
-# ==========================================
-# DATASET 1 VIEW
-# ==========================================
 with col1:
-    st.header("Dataset A")
-    # Dynamically update the source name based on the uploaded file
-    if uploaded_file_1:
-        st.caption(f"Source: `{uploaded_file_1.name}`")
-    else:
-        st.caption("Source: `Sample Data`")
-    
-    # 1. KPIs / Metrics
-    kpi1_a, kpi2_a = st.columns(2)
-    with kpi1_a:
-        st.metric(label="Total Records", value=f"{len(df1):,}")
-    with kpi2_a:
-        if 'Revenue' in df1.columns:
-            st.metric(label="Total Revenue", value=f"${df1['Revenue'].sum():,.2f}")
-        else:
-            st.metric(label="Total Columns", value=len(df1.columns))
-            
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 2. Modern Graph: Bar Chart
-    if 'Category' in df1.columns and 'Revenue' in df1.columns:
-        fig_bar1 = px.bar(
-            df1.groupby('Category')['Revenue'].sum().reset_index(),
-            x='Category', y='Revenue',
-            title="Revenue by Category",
-            color='Category',
-            template="plotly_dark", # Switched to plotly_dark to match Streamlit dark mode
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig_bar1.update_layout(showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_bar1, width="stretch")
+    render_dataset_dashboard(df1, "Dataset A", source_1, "d1")
 
-    # 3. Pie Chart
-    if 'Region' in df1.columns:
-        fig_pie1 = px.pie(
-            df1, names='Region',
-            title="Distribution by Region",
-            hole=0.4,
-            template="plotly_dark",
-            color_discrete_sequence=px.colors.sequential.Teal
-        )
-        fig_pie1.update_layout(margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_pie1, use_container_width=True)
-
-# ==========================================
-# DATASET 2 VIEW
-# ==========================================
 with col2:
-    st.header("Dataset B")
-    if uploaded_file_2:
-        st.caption(f"Source: `{uploaded_file_2.name}`")
-    else:
-        st.caption("Source: `Sample Data`")
-    
-    # 1. KPIs / Metrics
-    kpi1_b, kpi2_b = st.columns(2)
-    with kpi1_b:
-        st.metric(label="Total Records", value=f"{len(df2):,}")
-    with kpi2_b:
-        if 'Revenue' in df2.columns:
-            st.metric(label="Total Revenue", value=f"${df2['Revenue'].sum():,.2f}")
-        else:
-            st.metric(label="Total Columns", value=len(df2.columns))
-            
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 2. Modern Graph: Bar Chart
-    if 'Category' in df2.columns and 'Revenue' in df2.columns:
-        fig_bar2 = px.bar(
-            df2.groupby('Category')['Revenue'].sum().reset_index(),
-            x='Category', y='Revenue',
-            title="Revenue by Category",
-            color='Category',
-            template="plotly_dark",
-            color_discrete_sequence=px.colors.qualitative.Pastel
-        )
-        fig_bar2.update_layout(showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_bar2, use_container_width=True)
+    render_dataset_dashboard(df2, "Dataset B", source_2, "d2")
 
-    # 3. Pie Chart
-    if 'Region' in df2.columns:
-        fig_pie2 = px.pie(
-            df2, names='Region',
-            title="Distribution by Region",
-            hole=0.4,
-            template="plotly_dark",
-            color_discrete_sequence=px.colors.sequential.Burg
-        )
-        fig_pie2.update_layout(margin=dict(l=0, r=0, t=40, b=0))
-        st.plotly_chart(fig_pie2, use_container_width=True)
-
-# -----------------------------------------------------------------------------
-# COMBINED DATA VIEW
-# -----------------------------------------------------------------------------
 st.markdown("---")
 st.subheader("Raw Data Preview")
-
 tab1, tab2 = st.tabs(["Dataset A Preview", "Dataset B Preview"])
 with tab1:
-    st.dataframe(df1.head(10), use_container_width=True)
+    st.dataframe(df1.head(10), width="stretch")
 with tab2:
-    st.dataframe(df2.head(10), use_container_width=True)
+    st.dataframe(df2.head(10), width="stretch")
